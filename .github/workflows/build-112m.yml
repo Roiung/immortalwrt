@@ -38,10 +38,10 @@ jobs:
           sudo mkdir -p /workdir
           sudo chown $USER:$USER /workdir
 
-      - name: Clone official ImmortalWrt openwrt-24.10
+      - name: Clone official ImmortalWrt v24.10.6 (exact tag)
         working-directory: /workdir
         run: |
-          git clone https://github.com/immortalwrt/immortalwrt -b openwrt-24.10 --single-branch --depth 1 openwrt
+          git clone https://github.com/immortalwrt/immortalwrt -b v24.10.6 --single-branch --depth 1 openwrt
           ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
       - name: Cache toolchain & dl
@@ -50,12 +50,13 @@ jobs:
           path: |
             /workdir/.ccache
             /workdir/openwrt/dl
-          key: tr3000-112m-${{ hashFiles('112m.seed.config', 'diy-part2.sh') }}
-          restore-keys: tr3000-112m-
+          key: tr3000-112m-v24.10.6-${{ hashFiles('112m.seed.config', 'diy-part2.sh') }}
+          restore-keys: tr3000-112m-v24.10.6-
 
-      - name: Apply 112m patch & feeds
+      - name: Verify target tag & apply 112m patch
         run: |
           cd openwrt
+          grep 'KERNEL_PATCHVER' include/kernel-6.6 2>/dev/null || grep -r 'KERNEL_PATCHVER := 6.6' target/linux/mediatek/Makefile
           chmod +x $GITHUB_WORKSPACE/diy-part2.sh
           $GITHUB_WORKSPACE/diy-part2.sh
           git diff --stat || true
@@ -67,22 +68,22 @@ jobs:
           cd openwrt
           cp $GITHUB_WORKSPACE/112m.seed.config .config
           make defconfig
-          echo '--- selected profile ---'
-          grep CONFIG_TARGET_mediatek_filogic_DEVICE .config || true
+          grep CONFIG_TARGET_mediatek_filogic_DEVICE .config
           make download -j$(nproc)
           make -j$(nproc) CC="ccache gcc" CXX="ccache g++" || make -j1 V=s
 
-      - name: Verify 112m in built dtb
+      - name: Verify kernel vermagic matches official 24.10.6
         run: |
           cd openwrt
-          DTB=$(find build_dir -name '*tr3000*v1*ubootmod*.dtb' | head -1)
-          echo "DTB: $DTB"
-          if [ -n "$DTB" ] && dtc -I dtb -O dts "$DTB" 2>/dev/null | grep -q '0x07000000'; then
-            echo "OK: ubi=0x7000000 (112M)"
+          KV=$(grep -oP 'kernel - \K\S+' bin/targets/mediatek/filogic/*.manifest | head -1)
+          echo "Built kernel: $KV"
+          if [ "$KV" = "6.6.133~a8b93917f464536104594f27d870028d-r1" ]; then
+            echo "OK: vermagic matches official 24.10.6"
           else
-            echo "WARN: 112m marker not found in dtb"
-            [ -n "$DTB" ] && dtc -I dtb -O dts "$DTB" 2>/dev/null | grep -B2 -A6 'partition@5c0000' || true
+            echo "FAIL: vermagic mismatch — kmod 不可用"; exit 1
           fi
+          DTB=$(find build_dir -name '*tr3000*v1*ubootmod*.dtb' | head -1)
+          dtc -I dtb -O dts "$DTB" 2>/dev/null | grep -A3 'partition@5c0000' || true
 
       - name: Collect artifacts
         run: |
@@ -94,13 +95,6 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: tr3000-112m-pure
+          name: tr3000-112m-pure-v24106
           path: artifacts/*
           retention-days: 7
-
-      - name: Create release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: tr3000-112m-${{ github.run_number }}
-          files: artifacts/*
-        continue-on-error: true
