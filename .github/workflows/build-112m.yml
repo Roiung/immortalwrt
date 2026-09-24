@@ -69,27 +69,35 @@ jobs:
           cd openwrt
           cp $GITHUB_WORKSPACE/112m.seed.config .config
           make defconfig
-          grep CONFIG_TARGET_mediatek_filogic_DEVICE .config
+          grep CONFIG_TARGET_mediatek_filogic_DEVICE .config | head -3
+          echo "ALL_KMODS: $(grep CONFIG_ALL_KMODS .config)"
           make download -j$(nproc)
           make -j$(nproc) CC="ccache gcc" CXX="ccache g++" || make -j1 V=s
 
-      - name: Verify kernel vermagic matches official 24.10.6
+      - name: Check kernel vermagic vs official 24.10.6 (non-fatal)
+        id: vermagic
+        continue-on-error: true
         run: |
           cd openwrt
           KV=$(grep -oE 'kernel - [^ ]+' bin/targets/mediatek/filogic/*.manifest | head -1 | sed 's/kernel - //')
           echo "Built kernel: $KV"
           if [ "$KV" = "6.6.133~a8b93917f464536104594f27d870028d-r1" ]; then
-            echo "OK: vermagic matches official 24.10.6"
+            echo "MATCH_OFFICIAL=true" >> $GITHUB_OUTPUT
+            echo "OK: vermagic matches official — 官方源 kmod 可用"
           else
-            echo "FAIL: vermagic mismatch"
-            exit 1
+            echo "MATCH_OFFICIAL=false" >> $GITHUB_OUTPUT
+            echo "NOTE: vermagic != official — 使用本产物自带 kmod (自匹配)"
           fi
 
-      - name: Collect artifacts
+      - name: Collect artifacts (firmware + kmods, always)
         run: |
-          mkdir -p artifacts
+          mkdir -p artifacts/kmods
           find openwrt/bin/targets/ -name '*tr3000-v1-ubootmod*' -exec cp {} artifacts/ \;
           find openwrt/bin/targets/ -name 'sha256sums' -path '*filogic*' -exec cp {} artifacts/ \;
+          # ALL_KMODS 产物: 全量 kmod ipk (与本固件 vermagic 天然匹配)
+          find openwrt/bin/targets/mediatek/filogic -name 'kmod-*.ipk' -newer openwrt/.config -exec cp {} artifacts/kmods/ \; 2>/dev/null || true
+          ls artifacts/kmods | head -5
+          echo "kmod count: $(ls artifacts/kmods 2>/dev/null | wc -l)"
           ls -la artifacts/
 
       - name: Upload artifacts
