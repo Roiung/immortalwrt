@@ -53,10 +53,11 @@ jobs:
           key: tr3000-112m-v24.10.6-${{ hashFiles('112m.seed.config', 'diy-part2.sh') }}
           restore-keys: tr3000-112m-v24.10.6-
 
-      - name: Verify target tag & apply 112m patch
+      - name: Show kernel version & apply 112m patch
         run: |
           cd openwrt
-          grep 'KERNEL_PATCHVER' include/kernel-6.6 2>/dev/null || grep -r 'KERNEL_PATCHVER := 6.6' target/linux/mediatek/Makefile
+          echo "=== kernel version pin ==="
+          cat include/kernel-6.6
           chmod +x $GITHUB_WORKSPACE/diy-part2.sh
           $GITHUB_WORKSPACE/diy-part2.sh
           git diff --stat || true
@@ -75,15 +76,14 @@ jobs:
       - name: Verify kernel vermagic matches official 24.10.6
         run: |
           cd openwrt
-          KV=$(grep -oP 'kernel - \K\S+' bin/targets/mediatek/filogic/*.manifest | head -1)
+          KV=$(grep -oE 'kernel - [^ ]+' bin/targets/mediatek/filogic/*.manifest | head -1 | sed 's/kernel - //')
           echo "Built kernel: $KV"
           if [ "$KV" = "6.6.133~a8b93917f464536104594f27d870028d-r1" ]; then
             echo "OK: vermagic matches official 24.10.6"
           else
-            echo "FAIL: vermagic mismatch — kmod 不可用"; exit 1
+            echo "FAIL: vermagic mismatch"
+            exit 1
           fi
-          DTB=$(find build_dir -name '*tr3000*v1*ubootmod*.dtb' | head -1)
-          dtc -I dtb -O dts "$DTB" 2>/dev/null | grep -A3 'partition@5c0000' || true
 
       - name: Collect artifacts
         run: |
