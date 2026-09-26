@@ -22,7 +22,7 @@ jobs:
       - name: Checkout build scripts
         uses: actions/checkout@v4
 
-      - name: Free disk space
+      - name: Free disk space (KEEP swap — OOM killed the 1st attempt)
         uses: jlumbroso/free-disk-space@main
         with:
           tool-cache: true
@@ -31,7 +31,7 @@ jobs:
           haskell: true
           large-packages: true
           docker-images: true
-          swap-storage: true
+          swap-storage: false
 
       - name: Init environment
         run: |
@@ -70,6 +70,9 @@ jobs:
 
       - name: Configure & build
         run: |
+          echo "=== resources before build ==="
+          nproc; free -h; df -h / /workdir | grep -v tmpfs || true
+          swapon --show || true
           cd openwrt
           cp $GITHUB_WORKSPACE/112m.seed.config .config
           make defconfig
@@ -80,6 +83,8 @@ jobs:
 
       - name: HARD GATE - built dtb must declare 112m ubi
         run: |
+          echo "=== resources after build ==="
+          free -h; df -h / /workdir | grep -v tmpfs || true
           cd openwrt
           DTB=$(find build_dir -name 'mt7981b-cudy-tr3000-v1-ubootmod.dtb' | head -1)
           echo "dtb: $DTB"
