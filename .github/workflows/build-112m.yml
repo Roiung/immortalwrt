@@ -62,8 +62,10 @@ jobs:
           cat target/linux/generic/kernel-6.12 || true
           chmod +x $GITHUB_WORKSPACE/diy-part2.sh
           $GITHUB_WORKSPACE/diy-part2.sh
-          echo "=== dts after patch ==="
-          grep -n '0x5c0000' target/linux/mediatek/dts/mt7981b-cudy-tr3000-v1-ubootmod.dts || true
+          echo "=== dts after patch (must be 112m NOW, not after 4h) ==="
+          grep -q 'reg = <0x5c0000 0x7000000>;' target/linux/mediatek/dts/mt7981b-cudy-tr3000-v1-ubootmod.dts || { echo "PATCH FAIL: 112m reg not in dts"; exit 1; }
+          grep -q '0x7a40000' target/linux/mediatek/dts/mt7981b-cudy-tr3000-v1-ubootmod.dts && { echo "PATCH FAIL: 122m still present"; exit 1; } || true
+          echo "dts 112m OK"
           git diff --stat || true
           ./scripts/feeds update -a
           ./scripts/feeds install -a
@@ -76,8 +78,14 @@ jobs:
           cd openwrt
           cp $GITHUB_WORKSPACE/112m.seed.config .config
           make defconfig
-          grep CONFIG_TARGET_mediatek_filogic_DEVICE_cudy .config | head -6 || true
+          echo "=== FAIL-FAST seed assertions (learned from runs 1-2) ==="
+          ND=$(grep -c 'CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_.*=y' .config)
+          echo "devices=y: $ND (expect 187 - official full set; pruning devices breaks Netgear recipes)"
+          [ "$ND" = "187" ] || { echo "SEED ASSERT FAIL: device count $ND != 187"; exit 1; }
+          grep -q 'CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_netgear_eax17=y' .config || { echo "SEED ASSERT FAIL: netgear_eax17 not enabled (its recipe needs ROOTFS_ID)"; exit 1; }
+          grep -q 'CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_cudy_tr3000-v1-ubootmod=y' .config || { echo "SEED ASSERT FAIL: tr3000-ubootmod not enabled"; exit 1; }
           echo "ALL_KMODS: $(grep CONFIG_ALL_KMODS .config)"
+          grep -q 'CONFIG_ALL_KMODS=y' .config || { echo "SEED ASSERT FAIL: ALL_KMODS lost"; exit 1; }
           make download -j$(nproc) || make download -j1
           make -j$(nproc) CC="ccache gcc" CXX="ccache g++" || make -j1 V=s
 
